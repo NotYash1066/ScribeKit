@@ -36,8 +36,6 @@ def doctor():
     """Check system dependencies (ffmpeg, whisper.cpp, etc.)."""
     check_dependencies()
 
-if __name__ == "__main__":
-    app()
 
 
 from audioai import models
@@ -46,3 +44,6 @@ app.add_typer(models.app, name="models")
 # Map the transcribe command directly onto the main app
 from audioai import transcribe
 app.command("transcribe")(transcribe.transcribe)
+
+if __name__ == "__main__":
+    app()

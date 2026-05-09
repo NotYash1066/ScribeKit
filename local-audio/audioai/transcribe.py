@@ -1,13 +1,10 @@
 import typer
-import shutil
-import json
 from pathlib import Path
 from audioai import config
 from audioai.utils import run_command, is_tool_installed
 from audioai.models import load_registry
 from rich.console import Console
 
-app = typer.Typer(help="Transcribe audio files.")
 console = Console()
 
 def normalize_audio(input_file: Path, output_file: Path):
@@ -71,7 +68,6 @@ def run_whisper(audio_file: Path, model_path: Path, output_base: Path, lang: str
 
     console.print("[green]Transcription complete![/green]")
 
-@app.command("transcribe")
 def transcribe(
     audio_file: Path = typer.Argument(..., help="Path to the audio file"),
     model: str = typer.Option("whisper-base", "--model", "-m", help="STT model to use"),
@@ -108,6 +104,7 @@ def transcribe(
 
     except Exception as e:
         console.print(f"[red]Transcription failed: {e}[/red]")
+        raise typer.Exit(code=1)
     finally:
         # Cleanup normalized temp file
         if normalized_wav.exists():

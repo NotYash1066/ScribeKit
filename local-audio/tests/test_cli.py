@@ -1,9 +1,8 @@
 import pytest
 import os
-import json
 from pathlib import Path
 from typer.testing import CliRunner
-from unittest.mock import patch, mock_open
+from unittest.mock import patch
 
 from audioai.cli import app
 from audioai import config

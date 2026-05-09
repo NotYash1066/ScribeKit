@@ -1,7 +1,5 @@
 import os
 import sys
-import shutil
-from pathlib import Path
 from audioai import config
 from audioai.utils import is_tool_installed
 
