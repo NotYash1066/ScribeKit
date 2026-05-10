@@ -43,9 +43,6 @@ def config_set(key: str, value: str):
     console.print(f"Set {key} to {value} [green]✅[/green]")
 
 
-if __name__ == "__main__":
-    app()
-
 models_app = typer.Typer(help="Manage STT Models", no_args_is_help=True)
 app.add_typer(models_app, name="models")
 
@@ -175,3 +172,7 @@ def transcribe(
     except Exception as e:
         console.print(f"[red]Transcription failed:[/red] {e}")
         raise typer.Exit(code=1)
+
+
+if __name__ == "__main__":
+    app()
