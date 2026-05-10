@@ -1,91 +1,163 @@
 import pytest
-import os
+import json
+import shutil
 from pathlib import Path
 from typer.testing import CliRunner
-from unittest.mock import patch
-
 from audioai.cli import app
-from audioai import config
+from audioai.config import DEFAULT_CONFIG_DIR
 
 runner = CliRunner()
 
-@pytest.fixture
-def mock_env(monkeypatch, tmp_path):
-    """Mock the config directories to use a temp dir for testing."""
-    test_app_dir = tmp_path / ".audioai"
-    monkeypatch.setattr(config, "APP_DIR", test_app_dir)
-    monkeypatch.setattr(config, "MODELS_DIR", test_app_dir / "models")
-    monkeypatch.setattr(config, "BIN_DIR", test_app_dir / "bin")
-    monkeypatch.setattr(config, "REGISTRY_FILE", test_app_dir / "registry.json")
-    return test_app_dir
 
-def test_init_creates_directories(mock_env):
+@pytest.fixture(autouse=True)
+def isolated_config(tmp_path, monkeypatch):
+    """Isolate config and models directory for testing."""
+    test_config_dir = tmp_path / ".audioai"
+    monkeypatch.setattr("audioai.config.DEFAULT_CONFIG_DIR", test_config_dir)
+    monkeypatch.setattr(
+        "audioai.config.DEFAULT_CONFIG_FILE", test_config_dir / "config.yaml"
+    )
+    monkeypatch.setattr("audioai.doctor.DEFAULT_CONFIG_DIR", test_config_dir)
+
+    # Init so dirs exist
+    runner.invoke(app, ["init"])
+    return tmp_path
+
+
+def test_init():
     result = runner.invoke(app, ["init"])
     assert result.exit_code == 0
-    assert "Created directories in" in result.output
-    assert config.APP_DIR.exists()
-    assert config.MODELS_DIR.exists()
-    assert config.BIN_DIR.exists()
-    assert config.REGISTRY_FILE.exists()
+    assert "Initialized AudioAI configuration" in result.stdout
 
-def test_doctor_detects_missing_tools(mock_env):
-    runner.invoke(app, ["init"])
 
-    with patch("audioai.doctor.is_tool_installed", return_value=False):
-        result = runner.invoke(app, ["doctor"])
-        assert result.exit_code == 0
-        assert "[✗] FFmpeg is missing" in result.output
-        assert "[✗] whisper-cli (whisper.cpp) is missing" in result.output
+def test_doctor_missing_ffmpeg(monkeypatch):
+    monkeypatch.setattr(
+        "shutil.which", lambda x: None if x == "ffmpeg" else "/fake/path"
+    )
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0  # Doctor runs successfully but prints missing
+    assert "FFmpeg: missing" in result.stdout
+    assert "needs attention" in result.stdout
 
-def test_models_list(mock_env):
-    runner.invoke(app, ["init"])
+
+def test_doctor_all_present(monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda x: "/fake/path")
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "ready" in result.stdout
+
+
+def test_models_list():
     result = runner.invoke(app, ["models", "list"])
     assert result.exit_code == 0
-    assert "whisper-base" in result.output
-    assert "Available" in result.output
+    data = json.loads(result.stdout)
+    assert "whisper-base" in data
+    assert data["whisper-base"]["installed"] is False
 
-def test_models_install(mock_env):
-    runner.invoke(app, ["init"])
-    result = runner.invoke(app, ["models", "install", "whisper-base"])
+
+def test_models_info():
+    result = runner.invoke(app, ["models", "info", "whisper-base"])
     assert result.exit_code == 0
-    assert "Successfully installed whisper-base" in result.output
+    data = json.loads(result.stdout)
+    assert data["backend"] == "whisper.cpp"
 
-    # Check that list now shows it as installed
-    result_list = runner.invoke(app, ["models", "list"])
-    assert "Installed" in result_list.output
 
-def test_transcribe_missing_model(mock_env, tmp_path):
-    runner.invoke(app, ["init"])
-    test_audio = tmp_path / "test.wav"
-    test_audio.touch()
+def test_config_set_and_show():
+    result = runner.invoke(app, ["config", "set", "whisper.binary", "/opt/whisper-cli"])
+    assert result.exit_code == 0
 
-    result = runner.invoke(app, ["transcribe", str(test_audio), "--model", "nonexistent"])
+    result = runner.invoke(app, ["config", "show"])
+    assert result.exit_code == 0
+    assert "/opt/whisper-cli" in result.stdout
+
+
+def test_transcribe_missing_input():
+    result = runner.invoke(app, ["transcribe", "nonexistent.mp3"])
     assert result.exit_code == 1
-    assert "not installed or not found" in result.output
+    assert "Input file 'nonexistent.mp3' not found" in result.stdout
 
-@patch("audioai.transcribe.is_tool_installed")
-@patch("audioai.transcribe.run_command")
-def test_transcribe_success(mock_run, mock_is_tool, mock_env, tmp_path):
-    runner.invoke(app, ["init"])
-    runner.invoke(app, ["models", "install", "whisper-base"])
 
-    test_audio = tmp_path / "test.wav"
-    test_audio.touch()
+def test_transcribe_missing_model(tmp_path):
+    dummy_audio = tmp_path / "dummy.wav"
+    dummy_audio.touch()
+    result = runner.invoke(app, ["transcribe", str(dummy_audio)])
+    assert result.exit_code == 1
+    assert "Model 'whisper-base' is not installed" in result.stdout
 
-    mock_is_tool.return_value = True
-    mock_run.return_value = None
 
-    # Run from a specific directory so 'outputs/' goes to tmp_path
-    original_cwd = os.getcwd()
-    os.chdir(tmp_path)
+@pytest.fixture
+def mock_transcribe_env(monkeypatch, tmp_path):
+    # Mock model as installed
+    def mock_get_models_dir():
+        d = tmp_path / "models"
+        d.mkdir(exist_ok=True)
+        return d
 
-    try:
-        result = runner.invoke(app, ["transcribe", str(test_audio)])
-        assert result.exit_code == 0
-        assert "Audio normalization complete." in result.output
-        assert "Transcription complete!" in result.output
+    monkeypatch.setattr("audioai.models.get_models_dir", mock_get_models_dir)
 
-        output_dir = Path("outputs")
-        assert output_dir.exists()
-    finally:
-        os.chdir(original_cwd)
+    (mock_get_models_dir() / "ggml-base.bin").touch()
+
+    # Create dummy audio
+    audio_path = tmp_path / "test.mp3"
+    audio_path.write_bytes(b"dummy audio data")
+
+    out_dir = tmp_path / "outputs"
+
+    # Mock subprocess.run for ffmpeg and whisper-cli
+    import subprocess
+
+    original_run = subprocess.run
+    import subprocess
+
+    def mocked_run(cmd, *args, **kwargs):
+        if cmd[0] == "ffmpeg":
+            # Just create the output file
+            out_file = Path(cmd[-1])
+            out_file.touch()
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="", stderr=""
+            )
+        elif "whisper-cli" in cmd[0]:
+            # Create the json output
+            of_idx = cmd.index("-of")
+            prefix = cmd[of_idx + 1]
+            out_json = Path(f"{prefix}.json")
+
+            dummy_json = {
+                "transcription": [
+                    {"offsets": {"from": 0, "to": 500}, "text": " Hello world."}
+                ]
+            }
+            out_json.write_text(json.dumps(dummy_json))
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="", stderr=""
+            )
+        return original_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", mocked_run)
+    monkeypatch.setattr("shutil.which", lambda x: "/fake/path")
+
+    return audio_path, out_dir
+
+
+def test_transcribe_success(mock_transcribe_env):
+    import subprocess
+
+    audio_path, out_dir = mock_transcribe_env
+
+    result = runner.invoke(app, ["transcribe", str(audio_path), "--out", str(out_dir)])
+
+    assert result.exit_code == 0
+    assert "Outputs saved to" in result.stdout
+
+    assert (out_dir / "test.transcript.txt").exists()
+    assert (out_dir / "test.transcript.md").exists()
+    assert (out_dir / "test.segments.json").exists()
+    assert (out_dir / "test.meta.json").exists()
+
+    # Check JSON structure
+    with open(out_dir / "test.segments.json") as f:
+        data = json.load(f)
+        assert data["source_file"] == "test.mp3"
+        assert len(data["segments"]) == 1
+        assert data["segments"][0]["text"] == "Hello world."

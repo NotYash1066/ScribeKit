@@ -7,6 +7,7 @@ from rich.console import Console
 
 console = Console()
 
+
 def normalize_audio(input_file: Path, output_file: Path):
     """Normalize audio to 16kHz mono WAV using FFmpeg."""
     if not is_tool_installed("ffmpeg"):
@@ -15,27 +16,38 @@ def normalize_audio(input_file: Path, output_file: Path):
 
     console.print(f"Normalizing audio: {input_file.name} -> {output_file.name}")
     command = [
-        "ffmpeg", "-y", "-i", str(input_file),
-        "-acodec", "pcm_s16le", "-ac", "1", "-ar", "16000",
-        str(output_file)
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(input_file),
+        "-acodec",
+        "pcm_s16le",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        str(output_file),
     ]
     # For MVP we just run it and let ffmpeg output go to stdout/stderr or capture it.
     run_command(command, capture_output=True)
     console.print("[green]Audio normalization complete.[/green]")
 
-def run_whisper(audio_file: Path, model_path: Path, output_base: Path, lang: str = "auto"):
+
+def run_whisper(
+    audio_file: Path, model_path: Path, output_base: Path, lang: str = "auto"
+):
     """Run whisper.cpp via subprocess."""
 
     # Determine whisper binary
     whisper_bin = "whisper-cli"
     if not is_tool_installed("whisper-cli"):
         if (config.BIN_DIR / "whisper-cli").exists():
-             whisper_bin = str(config.BIN_DIR / "whisper-cli")
+            whisper_bin = str(config.BIN_DIR / "whisper-cli")
         elif (config.BIN_DIR / "main").exists():
-             whisper_bin = str(config.BIN_DIR / "main")
+            whisper_bin = str(config.BIN_DIR / "main")
         else:
-             console.print("[red]whisper-cli binary not found.[/red]")
-             raise typer.Exit(code=1)
+            console.print("[red]whisper-cli binary not found.[/red]")
+            raise typer.Exit(code=1)
 
     console.print(f"Transcribing {audio_file.name} with model {model_path.name}...")
 
@@ -43,14 +55,17 @@ def run_whisper(audio_file: Path, model_path: Path, output_base: Path, lang: str
     # Note: we use -otxt (text), -oj (json) to get structured output
     command = [
         whisper_bin,
-        "-m", str(model_path),
-        "-f", str(audio_file),
-        "-otxt", "-oj",
-        "-of", str(output_base)
+        "-m",
+        str(model_path),
+        "-f",
+        str(audio_file),
+        "-otxt",
+        "-oj",
+        "-of",
+        str(output_base),
     ]
     if lang != "auto":
         command.extend(["-l", lang])
-
 
     # In a real environment, this might take a while, so we might not want to capture_output
     # entirely without showing progress, but for MVP capture_output=True is okay for testing
@@ -68,10 +83,13 @@ def run_whisper(audio_file: Path, model_path: Path, output_base: Path, lang: str
 
     console.print("[green]Transcription complete![/green]")
 
+
 def transcribe(
     audio_file: Path = typer.Argument(..., help="Path to the audio file"),
     model: str = typer.Option("whisper-base", "--model", "-m", help="STT model to use"),
-    lang: str = typer.Option("auto", "--lang", "-l", help="Language code (e.g. en, hi)")
+    lang: str = typer.Option(
+        "auto", "--lang", "-l", help="Language code (e.g. en, hi)"
+    ),
 ):
     """Transcribe an audio file."""
     if not audio_file.exists():
