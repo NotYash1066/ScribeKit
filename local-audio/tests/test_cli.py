@@ -107,6 +107,7 @@ def mock_transcribe_env(monkeypatch, tmp_path):
     import subprocess
 
     original_run = subprocess.run
+    import subprocess
 
     def mocked_run(cmd, *args, **kwargs):
         if cmd[0] == "ffmpeg":
@@ -140,6 +141,8 @@ def mock_transcribe_env(monkeypatch, tmp_path):
 
 
 def test_transcribe_success(mock_transcribe_env):
+    import subprocess
+
     audio_path, out_dir = mock_transcribe_env
 
     result = runner.invoke(app, ["transcribe", str(audio_path), "--out", str(out_dir)])

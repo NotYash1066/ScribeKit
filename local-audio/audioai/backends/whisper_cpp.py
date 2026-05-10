@@ -5,14 +5,12 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+import os
 
-from rich.console import Console
 from .base import STTBackend
 from ..schemas import Transcript, TranscriptSegment
 from ..audio import normalize_audio
 from ..config import load_config
-
-console = Console()
 
 
 class WhisperCppBackend(STTBackend):
@@ -107,8 +105,8 @@ class WhisperCppBackend(STTBackend):
             for i, seg in enumerate(segments_data):
                 # Handle start/end
                 offsets = seg.get("offsets", {})
-                start_sec = offsets.get("from", 0) * 0.001  # milliseconds -> seconds
-                end_sec = offsets.get("to", 0) * 0.001
+                start_sec = offsets.get("from", 0) * 0.01  # 10ms units -> seconds
+                end_sec = offsets.get("to", 0) * 0.01
 
                 text = seg.get("text", "").strip()
 
@@ -145,6 +143,6 @@ class WhisperCppBackend(STTBackend):
                 dest_dir.mkdir(exist_ok=True)
                 shutil.copy(normalized_wav, dest_dir / normalized_wav.name)
                 shutil.copy(json_path, dest_dir / json_path.name)
-                console.print(f"Kept temp files in {dest_dir}")
+                print(f"Kept temp files in {dest_dir}")
 
             return transcript
